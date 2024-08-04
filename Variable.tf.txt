@@ -1,0 +1,17 @@
+variable "aws_region" {
+  description = "AWS region where resources will be created"
+  type        = string
+  default     = "us-west-2"
+}
+
+variable "sqs_queues_count" {
+  description = "Number of SQS queues to create"
+  type        = number
+  default     = 2
+}
+
+variable "ip_whitelist" {
+  description = "List of IPs to whitelist"
+  type        = list(string)
+  default     = []
+}

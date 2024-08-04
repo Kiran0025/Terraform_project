@@ -1,0 +1,87 @@
+module  "API_Gateteway_SNS" {
+     source  = "https://github.com/Kiran0025/Terraform_project.git"
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+# Create an SNS topic
+resource "aws_sns_topic" "this" {
+  name = "api-gateway-topic"
+}
+
+# Create multiple SQS queues
+resource "aws_sqs_queue" "this" {
+  count = var.sqs_queues_count
+  name  = "api-gateway-queue-${count.index}"
+}
+
+# Create SNS subscription for each SQS queue
+resource "aws_sns_topic_subscription" "this" {
+  count  = var.sqs_queues_count
+  topic  = aws_sns_topic.this.arn
+  protocol = "sqs"
+  endpoint = aws_sqs_queue.this[count.index].arn
+
+  # Ensure SNS can send messages to SQS
+  endpoint_auto_confirms = true
+}
+
+# Create the API Gateway
+resource "aws_api_gateway_rest_api" "this" {
+  name        = "api-gateway"
+  description = "API Gateway for forwarding requests to SNS"
+}
+
+resource "aws_api_gateway_resource" "this" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  parent_id   = aws_api_gateway_rest_api.this.root_resource_id
+  path_part   = "resource"
+}
+
+resource "aws_api_gateway_method" "this" {
+  rest_api_id   = aws_api_gateway_rest_api.this.id
+  resource_id   = aws_api_gateway_resource.this.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "this" {
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  resource_id             = aws_api_gateway_resource.this.id
+  http_method             = aws_api_gateway_method.this.http_method
+  integration_http_method = "POST"
+  type                    = "AWS"
+  uri                     = "arn:aws:apigateway:${var.aws_region}:sns:path/${aws_sns_topic.this.name}"
+}
+
+resource "aws_api_gateway_deployment" "this" {
+  depends_on = [aws_api_gateway_integration.this]
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  stage_name  = "prod"
+}
+
+resource "aws_api_gateway_stage" "this" {
+  deployment_id = aws_api_gateway_deployment.this.id
+  rest_api_id    = aws_api_gateway_rest_api.this.id
+  stage_name     = "prod"
+}
+
+# Define IP Whitelisting
+resource "aws_api_gateway_method_settings" "this" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  stage_name  = aws_api_gateway_stage.this.stage_name
+  method_path  = "*/*"
+
+  settings {
+    logging_level = "INFO"
+    data_trace_enabled = true
+    metrics_enabled    = true
+
+    # IP Whitelisting
+    ip_restriction {
+      ip_whitelist = var.ip_whitelist
+    }
+  }
+}
